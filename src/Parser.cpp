@@ -25,7 +25,7 @@ bool Parser::isTorrentFile(std::string metainfo) {
     return std::filesystem::path(metainfo).extension() == ".torrent";
 }
 
-//What to do if string has i..e but has non numeric characters in between i and e
+//Parse ints encoded as i<integer encoded in base ten ASCII> e
 std::int64_t Parser::decodeInt(std::string encoded){
     if (encoded.size() >=3 && encoded[0]=='i'){
         size_t eIndex = encoded.find("e");
@@ -40,15 +40,20 @@ std::int64_t Parser::decodeInt(std::string encoded){
         }
     }
     else throw std::runtime_error("Invalid encoded value: " + encoded);
-    
 }
 
+//Parse byte strings encoded as <string length encoded in base ten ASCII>:<string data>
 std::string Parser::decodeString(std::string encoded){
     //encoded value begins with length of string and contains the colon designating the start of the string
     size_t colonIndex = encoded.find(":");
-    if (isdigit(encoded[0]) && colonIndex !=std::string::npos){ 
-        int64_t length = stoll(encoded.substr(0,colonIndex));
-        return encoded.substr(colonIndex+1, length);
+    if (isdigit(encoded[0]) && colonIndex !=std::string::npos){
+        std::string numberString = encoded.substr(0,colonIndex);
+        int64_t length = stoll(numberString);
+        std::string stringData = encoded.substr(colonIndex+1);
+        if ((stripAlpha(numberString).size() == numberString.size()) && (stringData.size()==length)) return stringData;
+        //enforces that there must be exactly length bytes following the colon 
+        //enforces that strings must be encoded as <[0-9]*>:<string data with n bytes where n == number preceding the colon>
+        else throw std::runtime_error("Invalid encoded value: " + encoded); 
     }
     else throw std::runtime_error("Invalid encoded value: " + encoded);
 }
