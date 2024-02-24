@@ -2,7 +2,12 @@
 #include <iostream>
 #include <filesystem>
 #include <cstdint>
+#include <vector>
+#include <regex>
 #include "Parser.h"
+#include "lib/nlohmann/json.hpp"
+
+using json = nlohmann::json;
 
 using namespace BitTorrent;
 
@@ -25,6 +30,61 @@ bool Parser::isTorrentFile(std::string metainfo) {
     return std::filesystem::path(metainfo).extension() == ".torrent";
 }
 
+//json decodeItem(){
+//    if token == 'i'
+//    else if token == 'l'
+//    else if token == 'd'
+//    else if isdigit(token)
+//    else 
+//}
+
+//convert a bencoded string into a list of tokens, for all types except strings, tokenized objects consist of a type code [idl], the object value, and an end code "e"
+//strings are given a virtual type code "s" followed by the string data
+// "i475e" -> ["i", "475", "e"] -- int
+// "l4:spam4:eggse" -> ["l", "s", "spam", "s", "eggs", "e"] -- list
+// "d3:cow3:moo4:spam4:eggse" -> ["d", "s", "cow", "s", "moo", "s", "spam", "s", "eggs", "e"] -- dict
+// "5:hello" -> ["s", "hello"] -- string
+// "li475el4:spam3:and4:eggsee" -> ["l", "i", "475", "e", "l", "s", "spam", "s", "and", "s", "eggs", "e", "e"]
+std::vector<std::string> Parser::tokenize(std::string encoded){
+    const std::regex pattern("([idel])|(\\d+):|(-?\\d+)");
+    std::vector<std::string> tokens;
+    std::smatch results;
+    int64_t idx=0;
+    while (idx<encoded.size()){
+        std::string sub = encoded.substr(idx, encoded.size()-idx);
+        if (std::regex_search(sub, results, pattern)){
+            int64_t tokLen = std::distance(results[0].first, results[0].second); // distance from the start of the matching sequence to the end of the matching sequence
+            std::string s = encoded.substr(idx, tokLen);
+            idx+=tokLen;
+            if (results[2].matched){ // capturing groups are 1-indexed, string matching group is index 2
+                tokens.push_back("s");
+                int64_t strLen = std::stoll(s);
+                tokens.push_back(encoded.substr(idx, strLen));
+                idx+=strLen;
+            }
+            else tokens.push_back(results.str());
+        }
+        else throw std::runtime_error("Invalid encoded value: " + encoded);
+    }
+    return tokens;
+}
+
+//Parse byte strings encoded as <string length encoded in base ten ASCII>:<string data>
+json Parser::decodeString(std::string encoded){
+    //encoded value begins with length of string and contains the colon designating the start of the string
+    size_t colonIndex = encoded.find(":");
+    if (isdigit(encoded[0]) && colonIndex !=std::string::npos){
+        std::string numberString = encoded.substr(0,colonIndex);
+        int64_t length = stoll(numberString);
+        std::string stringData = encoded.substr(colonIndex+1);
+        //enforces that there must be exactly length bytes following the colon 
+        //enforces that strings must be encoded as <[0-9]*>:<string data with n bytes where n == number preceding the colon>
+        if ((stripAlpha(numberString).size() == numberString.size()) && (stringData.size()==length)) return json(stringData);
+        throw std::runtime_error("Invalid encoded value: " + encoded); 
+    }
+    else throw std::runtime_error("Invalid encoded value: " + encoded);
+}
+
 //Parse ints encoded as i<integer encoded in base ten ASCII> e
 std::int64_t Parser::decodeInt(std::string encoded){
     if (encoded.size() >=3 && encoded[0]=='i'){
@@ -42,18 +102,7 @@ std::int64_t Parser::decodeInt(std::string encoded){
     else throw std::runtime_error("Invalid encoded value: " + encoded);
 }
 
-//Parse byte strings encoded as <string length encoded in base ten ASCII>:<string data>
-std::string Parser::decodeString(std::string encoded){
-    //encoded value begins with length of string and contains the colon designating the start of the string
-    size_t colonIndex = encoded.find(":");
-    if (isdigit(encoded[0]) && colonIndex !=std::string::npos){
-        std::string numberString = encoded.substr(0,colonIndex);
-        int64_t length = stoll(numberString);
-        std::string stringData = encoded.substr(colonIndex+1);
-        if ((stripAlpha(numberString).size() == numberString.size()) && (stringData.size()==length)) return stringData;
-        //enforces that there must be exactly length bytes following the colon 
-        //enforces that strings must be encoded as <[0-9]*>:<string data with n bytes where n == number preceding the colon>
-        else throw std::runtime_error("Invalid encoded value: " + encoded); 
-    }
-    else throw std::runtime_error("Invalid encoded value: " + encoded);
+//Parse bencoded lists where each element can be any other bencoded type. Construct a vector of encoded strings and decode as needed
+std::vector<std::string> Parser::decodeList(std::string encoded){
+    return {};
 }
