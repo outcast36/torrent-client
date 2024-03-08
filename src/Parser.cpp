@@ -7,18 +7,9 @@
 #include "Parser.h"
 #include "lib/nlohmann/json.hpp"
 
-using json = nlohmann::json;
+using json = nlohmann::json; //namespace alias
 
 using namespace BitTorrent;
-
-//utility function to strip any non-numeric characters from a string
-std::string stripAlpha(std::string input){
-    std::string stripped="";
-    for (char ch:input){
-        if (isdigit(ch)) stripped+=ch;
-    }
-    return stripped;
-}
 
 Parser::Parser(std::string metainfo) : torrent(metainfo) {}
 
@@ -30,16 +21,9 @@ bool Parser::isTorrentFile(std::string metainfo) {
     return std::filesystem::path(metainfo).extension() == ".torrent";
 }
 
-//json decodeItem(){
-//    if token == 'i'
-//    else if token == 'l'
-//    else if token == 'd'
-//    else if isdigit(token)
-//    else 
-//}
-
 //convert a bencoded string into a list of tokens, for all types except strings, tokenized objects consist of a type code [idl], the object value, and an end code "e"
 //strings are given a virtual type code "s" followed by the string data
+//based off of https://web.archive.org/web/20200105114449/https://effbot.org/zone/bencode.htm
 // "i475e" -> ["i", "475", "e"] -- int
 // "l4:spam4:eggse" -> ["l", "s", "spam", "s", "eggs", "e"] -- list
 // "d3:cow3:moo4:spam4:eggse" -> ["d", "s", "cow", "s", "moo", "s", "spam", "s", "eggs", "e"] -- dict
@@ -69,40 +53,40 @@ std::vector<std::string> Parser::tokenize(std::string encoded){
     return tokens;
 }
 
-//Parse byte strings encoded as <string length encoded in base ten ASCII>:<string data>
-json Parser::decodeString(std::string encoded){
-    //encoded value begins with length of string and contains the colon designating the start of the string
-    size_t colonIndex = encoded.find(":");
-    if (isdigit(encoded[0]) && colonIndex !=std::string::npos){
-        std::string numberString = encoded.substr(0,colonIndex);
-        int64_t length = stoll(numberString);
-        std::string stringData = encoded.substr(colonIndex+1);
-        //enforces that there must be exactly length bytes following the colon 
-        //enforces that strings must be encoded as <[0-9]*>:<string data with n bytes where n == number preceding the colon>
-        if ((stripAlpha(numberString).size() == numberString.size()) && (stringData.size()==length)) return json(stringData);
-        throw std::runtime_error("Invalid encoded value: " + encoded); 
+//Given a list of tokens for a bencoded torrent file, decode it into a json object representing the decoded dict
+json Parser::decode(std::vector<std::string> tokens, int& idx){
+    if (tokens[idx]=="i"){
+        std::string data = tokens[++idx];
+        if (tokens[++idx]!="e") throw std::runtime_error("Expected 'e' token i<>e: " + tokens[idx]); 
+        idx++;
+        return json(std::stoll(data));
     }
-    else throw std::runtime_error("Invalid encoded value: " + encoded);
-}
-
-//Parse ints encoded as i<integer encoded in base ten ASCII> e
-std::int64_t Parser::decodeInt(std::string encoded){
-    if (encoded.size() >=3 && encoded[0]=='i'){
-        size_t eIndex = encoded.find("e");
-        bool leadingZero = (encoded[1]=='0' && encoded[2]!='e'); //anything of the form "i0...e" other than "i0e" is invalid
-        bool negativeLeadingZero = (encoded[1]=='-' && encoded[2]=='0'); //anything of the form "i-0...e" is invalid
-        bool eInvalid = (eIndex==std::string::npos || eIndex!=encoded.size()-1); //e not found or e is not the last character of the string
-        if (leadingZero || negativeLeadingZero || eInvalid) throw std::runtime_error("Invalid encoded value: " + encoded);
-        else {
-            std::string numberString = encoded.substr(1, encoded.size()-2);
-            if (stripAlpha(numberString).size() != numberString.size()) throw std::runtime_error("Invalid encoded value: " + encoded);
-            else return stoll(numberString);
+    else if (tokens[idx]=="s"){
+        std::string data = tokens[++idx];
+        idx++;
+        return json(data);
+    }
+    else if (tokens[idx]=="l"){
+        std::vector<json> items;
+        idx++; 
+        while (tokens[idx]!="e"){
+            json item = decode(tokens,idx);
+            items.push_back(item);
         }
+        return json(items);
     }
-    else throw std::runtime_error("Invalid encoded value: " + encoded);
-}
-
-//Parse bencoded lists where each element can be any other bencoded type. Construct a vector of encoded strings and decode as needed
-std::vector<std::string> Parser::decodeList(std::string encoded){
-    return {};
+    else if (tokens[idx]=="d"){
+        idx++;
+        json j_dict;
+        while (tokens[idx]!="e"){
+            if (tokens[idx++]=="s"){
+                std::string key = tokens[idx++];
+                json value = decode(tokens, idx);
+                j_dict[key]=value;
+            }
+            else throw std::runtime_error("Expected string key: " + tokens[idx]);
+        }
+        return j_dict;
+    }
+    else throw std::runtime_error("Invalid token sequence");
 }
