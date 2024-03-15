@@ -1,5 +1,6 @@
 #include <string>
 #include <iostream>
+#include <fstream>
 #include <filesystem>
 #include <cstdint>
 #include <vector>
@@ -54,16 +55,14 @@ std::vector<std::string> Parser::tokenize(std::string encoded){
 }
 
 //Given a list of tokens for a bencoded torrent file, decode it into a json object representing the decoded dict
-json Parser::decode(std::vector<std::string> tokens, int& idx){
+json Parser::decode(std::vector<std::string> tokens, int64_t& idx){
     if (tokens[idx]=="i"){
         std::string data = tokens[++idx];
         if (tokens[++idx]!="e") throw std::runtime_error("Expected 'e' token i<>e: " + tokens[idx]); 
-        idx++;
         return json(std::stoll(data));
     }
     else if (tokens[idx]=="s"){
         std::string data = tokens[++idx];
-        idx++;
         return json(data);
     }
     else if (tokens[idx]=="l"){
@@ -72,6 +71,7 @@ json Parser::decode(std::vector<std::string> tokens, int& idx){
         while (tokens[idx]!="e"){
             json item = decode(tokens,idx);
             items.push_back(item);
+            idx++;
         }
         return json(items);
     }
@@ -79,14 +79,34 @@ json Parser::decode(std::vector<std::string> tokens, int& idx){
         idx++;
         json j_dict;
         while (tokens[idx]!="e"){
-            if (tokens[idx++]=="s"){
-                std::string key = tokens[idx++];
+            if (tokens[idx]=="s"){
+                std::string key = tokens[++idx]; idx++;
                 json value = decode(tokens, idx);
                 j_dict[key]=value;
+                idx++;
             }
             else throw std::runtime_error("Expected string key: " + tokens[idx]);
         }
         return j_dict;
     }
     else throw std::runtime_error("Invalid token sequence");
+}
+
+void Parser::decodeFile(json& decoded){
+    std::ifstream fileIn(torrent,std::ios::binary | std::ios::ate);
+    if (fileIn.is_open()){
+        int64_t fileSize=fileIn.tellg();
+        std::string content(fileSize, '\0');
+        fileIn.seekg(0);
+        if (fileIn.read(&content[0], fileSize)){
+            fileIn.close();
+            int64_t idx=0;
+            int64_t infoInd = content.find("4:info")+6;
+            std::vector<std::string> fileTokens=tokenize(content);
+            std::string infoDict = content.substr(infoInd, content.size()-infoInd-1);
+            decoded=decode(fileTokens, idx);
+        }
+        else throw std::runtime_error("Error reading file");
+    }
+    else throw std::runtime_error("Failed to open file: " + torrent);
 }
