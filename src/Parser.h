@@ -12,7 +12,8 @@ namespace BitTorrent {
         std::string getMetainfo();
         bool isTorrentFile(std::string metainfo);
         std::vector<std::string> tokenize(std::string encoded);
-        json decode(std::vector<std::string> tokens, int& idx);
+        json decode(std::vector<std::string> tokens, int64_t& idx);
+        void decodeFile(json& decoded);
     private:
         std::string torrent;
     };
