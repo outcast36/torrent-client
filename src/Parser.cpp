@@ -55,7 +55,7 @@ std::vector<std::string> Parser::tokenize(std::string encoded){
 }
 
 //Given a list of tokens for a bencoded torrent file, decode it into a json object representing the decoded dict
-json Parser::decode(std::vector<std::string> tokens, int64_t& idx){
+json Parser::decode(std::vector<std::string>& tokens, int64_t& idx){
     if (tokens[idx]=="i"){
         std::string data = tokens[++idx];
         if (tokens[++idx]!="e") throw std::runtime_error("Expected 'e' token i<>e: " + tokens[idx]); 
@@ -92,7 +92,7 @@ json Parser::decode(std::vector<std::string> tokens, int64_t& idx){
     else throw std::runtime_error("Invalid token sequence");
 }
 
-void Parser::decodeFile(json& decoded){
+void Parser::decodeFile(json& decoded, std::string& info){
     std::ifstream fileIn(torrent,std::ios::binary | std::ios::ate);
     if (fileIn.is_open()){
         int64_t fileSize=fileIn.tellg();
@@ -105,6 +105,7 @@ void Parser::decodeFile(json& decoded){
             std::vector<std::string> fileTokens=tokenize(content);
             std::string infoDict = content.substr(infoInd, content.size()-infoInd-1);
             decoded=decode(fileTokens, idx);
+            info=infoDict;
         }
         else throw std::runtime_error("Error reading file");
     }
