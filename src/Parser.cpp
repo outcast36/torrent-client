@@ -1,7 +1,6 @@
 #include <string>
 #include <iostream>
 #include <fstream>
-#include <filesystem>
 #include <cstdint>
 #include <vector>
 #include <regex>
@@ -13,14 +12,6 @@ using json = nlohmann::json; //namespace alias
 using namespace BitTorrent;
 
 Parser::Parser(std::string metainfo) : torrent(metainfo) {}
-
-std::string Parser::getMetainfo() { 
-    return this->torrent; 
-}
-
-bool Parser::isTorrentFile(std::string metainfo) {
-    return std::filesystem::path(metainfo).extension() == ".torrent";
-}
 
 //convert a bencoded string into a list of tokens, for all types except strings, tokenized objects consist of a type code [idl], the object value, and an end code "e"
 //strings are given a virtual type code "s" followed by the string data
@@ -55,7 +46,7 @@ std::vector<std::string> Parser::tokenize(std::string encoded){
 }
 
 //Given a list of tokens for a bencoded torrent file, decode it into a json object representing the decoded dict
-json Parser::decode(std::vector<std::string>& tokens, int64_t& idx){
+json Parser::decodeTokens(std::vector<std::string>& tokens, int64_t& idx){
     if (tokens[idx]=="i"){
         std::string data = tokens[++idx];
         if (tokens[++idx]!="e") throw std::runtime_error("Expected 'e' token i<>e: " + tokens[idx]); 
@@ -69,7 +60,7 @@ json Parser::decode(std::vector<std::string>& tokens, int64_t& idx){
         std::vector<json> items;
         idx++; 
         while (tokens[idx]!="e"){
-            json item = decode(tokens,idx);
+            json item = decodeTokens(tokens,idx);
             items.push_back(item);
             idx++;
         }
@@ -81,7 +72,7 @@ json Parser::decode(std::vector<std::string>& tokens, int64_t& idx){
         while (tokens[idx]!="e"){
             if (tokens[idx]=="s"){
                 std::string key = tokens[++idx]; idx++;
-                json value = decode(tokens, idx);
+                json value = decodeTokens(tokens, idx);
                 j_dict[key]=value;
                 idx++;
             }
@@ -104,7 +95,7 @@ void Parser::decodeFile(json& decoded, std::string& info){
             int64_t infoInd = content.find("4:info")+6;
             std::vector<std::string> fileTokens=tokenize(content);
             std::string infoDict = content.substr(infoInd, content.size()-infoInd-1);
-            decoded=decode(fileTokens, idx);
+            decoded=decodeTokens(fileTokens, idx);
             info=infoDict;
         }
         else throw std::runtime_error("Error reading file");
